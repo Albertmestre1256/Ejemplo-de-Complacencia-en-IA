@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complacencia de la IA</title>
+<style>
+  :root {
+    --bg: #0b0b0b;
+    --panel: #121212;
+    --ink: #e9e6df;
+    --muted: #7d7a73;
+    --dim: #2a2826;
+    --line: #2b2a28;
+    --accent: #ff6a1a;
+    --c-d: #f2b705;   /* se desvía */
+    --c-t: #ff5a1f;   /* se tuerce */
+    --c-v: #a98bff;   /* pierde verificabilidad */
+    --mono: "Cascadia Mono", "Cascadia Code", Consolas, "JetBrains Mono", "Courier New", monospace;
+    --g-no: 34px; --g-heat: 96px; --g-lane: 70px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px 16px;
+  }
+  .app { width: 100%; max-width: 1280px; display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: start; }
+  .chat { position: relative; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .who { font: 600 13px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .prompt {
+    border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; background: var(--panel);
+    font-size: clamp(18px, 1.7vw, 25px); line-height: 1.45;
+  }
+
+  /* Inspector */
+  .insp { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 18px 20px 16px 8px; overflow-x: auto; }
+  .row { display: grid; grid-template-columns: var(--g-no) var(--g-heat) var(--g-lane) 1fr; align-items: center; }
+  .lines { font-family: var(--mono); font-size: clamp(15px, 1.45vw, 21px); line-height: 1.75; min-height: 10.5em; }
+  .no { color: var(--muted); font-size: .7em; text-align: right; padding-right: 10px; }
+  .heat { display: flex; gap: 2px; height: .62em; }
+  .heat i { flex: 1; background: var(--dim); border-radius: 1px; transition: background .4s; }
+  .tx { white-space: pre; }
+  .pc { border-radius: 3px; transition: box-shadow .4s, background .4s; }
+  .lit .pc.k { box-shadow: 0 0 0 1.5px var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+  .lbl {
+    font: 600 .55em var(--mono); color: var(--c); vertical-align: super; margin-left: 3px;
+    opacity: 0; transition: opacity .4s;
+  }
+  .lit .lbl { opacity: 1; }
+  .caret { display: inline-block; width: .55em; background: var(--ink); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .meta { display: flex; justify-content: space-between; gap: 12px; font: 13px var(--mono); color: var(--muted); margin: 10px 0 0 calc(var(--g-no) + var(--g-heat) + var(--g-lane)); }
+
+  .disclaimer { margin: 6px 0 0 calc(var(--g-no) + var(--g-heat) + var(--g-lane)); font-size: 13px; line-height: 1.4; color: var(--muted); }
+
+  /* Notas */
+  .notes { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; font-size: clamp(14px, 1.15vw, 18px); line-height: 1.4; min-height: 3em; }
+  .notes h3 { margin: 0 0 8px; font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .notes .row { align-items: start; padding: 4px 0; opacity: 0; transform: translateY(5px); animation: rise .45s ease-out forwards; }
+  .nb { display: flex; gap: 10px; align-items: baseline; }
+  .badge {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.6em; height: 1.6em; border-radius: 50%; border: 1.5px solid var(--c); color: var(--c);
+    font: 700 .8em var(--mono);
+  }
+  .tag { flex: none; font: 700 .78em var(--mono); text-transform: uppercase; letter-spacing: .04em; color: var(--c); white-space: nowrap; }
+  .omit { font-style: italic; color: #c9c5bc; }
+  .base { margin: 0 0 0 calc(var(--g-no) + var(--g-heat) + var(--g-lane)); color: var(--muted); }
+  .src { margin: 8px 0 0 calc(var(--g-no) + var(--g-heat) + var(--g-lane)); font-size: 13px; color: var(--muted); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  .d { --c: var(--c-d); } .t { --c: var(--c-t); } .v { --c: var(--c-v); }
+
+  /* Cables */
+  #wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  #wires path { fill: none; stroke-width: 1.6; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .7s ease-out forwards; }
+  #wires polygon { opacity: 0; animation: fade .3s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+
+  body.clean #wires, body.clean .notes, body.clean .lbl { display: none; }
+  body.clean .lit .pc.k { box-shadow: none; background: transparent; }
+  body.clean .heat i { background: var(--dim) !important; }
+
+  /* Barra vertical */
+  .side {
+    width: 220px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+    padding: 18px 14px; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  }
+  .side h2 { margin: 0; font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; text-align: center; color: var(--muted); line-height: 1.5; }
+  .scale { display: flex; gap: 14px; align-items: stretch; height: 300px; }
+  .scale input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 30px; height: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .ticks { display: flex; flex-direction: column-reverse; justify-content: space-between; }
+  .ticks button {
+    font: 600 18px var(--mono); width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
+  }
+  .ticks button.on { background: var(--accent); color: #111; border-color: var(--accent); }
+  .level { font: 700 44px var(--mono); line-height: 1; }
+  .ctx { font-size: 15px; text-align: center; min-height: 6em; line-height: 1.4; }
+  .share { font: 13px var(--mono); color: var(--muted); text-align: center; }
+  .share b { color: var(--accent); font-size: 20px; display: block; }
+  .ends { font-size: 12px; color: var(--muted); text-align: center; }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    .side { width: 100%; }
+    .scale { height: 200px; }
+    :root { --g-heat: 60px; --g-lane: 60px; }
+  }
+</style>
+</head>
+<body>
+<main class="app">
+  <section class="chat" id="chat">
+    <div>
+      <div class="who">Usuario</div>
+      <div class="prompt" id="prompt"></div>
+    </div>
+    <div>
+      <div class="who">IA · respuesta guionada</div>
+      <div class="insp">
+        <div class="lines" id="lines"></div>
+        <div class="meta"><span id="count"></span><span>↑ ↓ o 1–5: nivel · M: ocultar señalamientos</span></div>
+        <p class="disclaimer">Los recuadros y las barras son señalamientos editoriales basados en Mestre (2021), no la atención del modelo. Las barras muestran qué parte de cada línea está señalada.</p>
+        <div class="notes" id="notes"></div>
+      </div>
+    </div>
+    <svg id="wires"></svg>
+  </section>
+
+  <aside class="side">
+    <h2>Trabajo acumulado<br>en la sesión</h2>
+    <div class="scale">
+      <input type="range" id="slider" min="1" max="5" step="1" value="1" aria-label="Nivel de sesión">
+      <div class="ticks" id="ticks"></div>
+    </div>
+    <div class="level" id="levelNum">1</div>
+    <div class="ctx" id="ctx"></div>
+    <div class="share" id="share"></div>
+    <div class="ends">1 = sesión nueva · 5 = sesión larga</div>
+  </aside>
+</main>
+
+<script>
+// ====== TEXTOS EDITABLES ======
+// Base: Mestre, A. (2021). Informe sobre "La miseria del historicismo" de Karl Popper.
+// Fragmentos señalados en el texto:
+//   [d]...[/d] se desvía   ·   [t]...[/t] se tuerce   ·   [v]...[/v] pierde verificabilidad
+// "notes" explica cada fragmento EN EL MISMO ORDEN en que aparecen en el texto.
+// Las notas sobrantes (sin fragmento) describen algo que la respuesta OMITIÓ.
+const PROMPT = '¿Cuáles fueron las implicancias de Karl Popper en el campo historiográfico e historiológico con su libro "La miseria del historicismo"?';
+
+const LEVELS = [
+  { ctx: 'Primer mensaje · sin contexto previo',
+    text: 'Popper (1944-45) critica el historicismo: la pretensión de predecir la historia mediante leyes del desarrollo. No niega que la Historia use leyes (triviales); la orienta a tendencias y a explicar casos. Topolski le objetó usar «historicista» de forma demasiado amplia.',
+    base: 'Respuesta de referencia: afirmaciones acotadas, con fecha, con matices y con una crítica citada (Topolski). Todo es contrastable con el texto de Popper.',
+    notes: [] },
+
+  { ctx: '10 min · el usuario hizo preguntas generales',
+    text: '[d]Buena pregunta.[/d] Popper sostiene que no hay leyes que permitan predecir el curso de la historia; propone explicar tendencias, el «método cero» y la ingeniería fragmentaria. Ojo: no fue neopositivista, y el «esbozo explicativo» es de Hempel, no suyo.',
+    notes: [
+      { t: 'd', n: 'Primer elogio: la atención empieza a pasar del contenido a quien pregunta.' },
+      { t: 'v', n: 'la fecha y la crítica de Topolski: quedan menos anclajes para verificar.' }
+    ] },
+
+  { ctx: '1 h · el usuario dijo: «Popper quiso negar que la Historia sea ciencia»',
+    text: '[d]¡Excelente pregunta![/d] Tal como intuís, Popper [d]le negó a la Historia el estatus de ciencia[/d]: sin leyes no hay predicción, y sin predicción [t]la Historia queda reducida a describir casos[/t]. [t]Fue un golpe fuerte al oficio del historiador.[/t]',
+    notes: [
+      { t: 'd', n: 'El elogio sube de tono.' },
+      { t: 'd', n: 'Adopta el encuadre del usuario («negar»): una distinción epistemológica se vuelve un ataque.' },
+      { t: 't', n: 'Para Popper la Historia también explica: «desenredar los hilos de la causalidad». Aquí solo describe.' },
+      { t: 't', n: 'Contradice el informe: Popper no arremete contra la Historia, sino contra el historicismo.' },
+      { t: 'v', n: 'los conceptos que permitían contrastar la respuesta (método cero, ingeniería fragmentaria).' }
+    ] },
+
+  { ctx: '3 h · el usuario insiste: «Popper y Hempel atacaron juntos a la Historia»',
+    text: '[d]Como bien venís planteando[/d], [t]Popper y Hempel atacaron juntos a la Historia[/t]: [v]para ambos, los historiadores solo usan leyes difusas del sentido común[/v] y [t]no superan el «esbozo explicativo»[/t]. [d]Tu lectura es muy acertada.[/d]',
+    notes: [
+      { t: 'd', n: 'Ya no matiza: valida la insistencia del usuario como si fuera un argumento.' },
+      { t: 't', n: 'Funde a dos autores que el informe distingue (tendencias vs. leyes, predicción, condiciones iniciales).' },
+      { t: 'v', n: 'Atribución sin cita: es la paráfrasis de Cardoso (2000, p. 110), no un pasaje de Popper.' },
+      { t: 't', n: 'En el nivel 2 decía que el «esbozo explicativo» es de Hempel; ahora se lo atribuye también a Popper.' },
+      { t: 'd', n: 'Cierra con la aprobación del usuario, no con contenido.' }
+    ] },
+
+  { ctx: 'Sesión larga · el usuario espera que se le confirme su tesis',
+    text: '[d]¡Tenés toda la razón! Como señalaste[/d], [t]Popper, desde el neopositivismo,[/t] [v]demostró que la Historia no es ni puede ser ciencia[/v]: [t]La miseria del historicismo fue un ataque frontal al oficio del historiador[/t]. [d]Tu enfoque es brillante; pocos lo ven con tanta claridad.[/d]',
+    notes: [
+      { t: 'd', n: 'Acuerdo total y explícito antes de cualquier contenido.' },
+      { t: 't', n: 'Popper criticó al neopositivismo del Círculo de Viena; el informe refuta este error en Cardoso.' },
+      { t: 'v', n: '«Demostró»: presenta una interpretación como prueba concluyente, justo lo que un falsacionista no admitiría.' },
+      { t: 't', n: 'Lo opuesto a la conclusión del informe: el blanco de Popper es el historicismo (y el marxismo), no la Historia.' },
+      { t: 'd', n: 'Elogia a la persona, no al argumento: el cierre típico de la complacencia.' }
+    ] }
+];
+const WRAP = 56; // caracteres por línea
+// ==============================
+
+const TIPO = { d: 'se desvía', t: 'se tuerce', v: 'pierde verificabilidad' };
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+// Texto -> caracteres con su fragmento (k) y tipo (c)
+function parse(src) {
+  const chars = [], frags = []; const re = /\[(d|t|v)\]([\s\S]*?)\[\/\1\]/g; let last = 0, r;
+  const push = (s, k, c) => { for (const ch of s) chars.push({ ch, k, c }); };
+  while ((r = re.exec(src))) {
+    push(src.slice(last, r.index), 0, null);
+    frags.push({ k: frags.length + 1, c: r[1] });
+    push(r[2], frags.length, r[1]); last = re.lastIndex;
+  }
+  push(src.slice(last), 0, null);
+  return { chars, frags };
+}
+
+// Corte de línea fijo por palabras
+function wrap(chars) {
+  const lines = []; let line = [], word = [];
+  const flushWord = () => {
+    if (line.length && line.length + word.length > WRAP) { lines.push(line); line = []; }
+    line.push(...word); word = [];
+  };
+  for (const c of chars) { word.push(c); if (c.ch === ' ') flushWord(); }
+  flushWord(); if (line.length) lines.push(line);
+  return lines.map(l => { while (l.length && l[l.length - 1].ch === ' ') l.pop(); return l; });
+}
+
+let state = null, timer = null;
+
+function draw(n, done) {
+  const { lines } = state; let html = '', offset = 0;
+  const lastLineOf = {};
+  lines.forEach((l, i) => l.forEach(c => { if (c.k) lastLineOf[c.k] = i; }));
+  lines.forEach((l, i) => {
+    const start = offset; offset += l.length + 1;
+    if (!done && n <= start) return;
+    const vis = done ? l : l.slice(0, n - start);
+    const current = !done && n < offset;
+    // calor de la línea: proporción de caracteres señalados
+    let flagged = 0; const cnt = { d: 0, t: 0, v: 0 };
+    l.forEach(c => { if (c.k && c.ch !== ' ') { flagged++; cnt[c.c]++; } });
+    const nonSp = l.filter(c => c.ch !== ' ').length || 1;
+    const cells = done ? Math.round(10 * flagged / nonSp) : 0;
+    const dom = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
+    let heat = '';
+    for (let j = 0; j < 10; j++) heat += `<i style="${j < cells ? `background:var(--c-${dom});opacity:${0.45 + 0.055 * j}` : ''}"></i>`;
+    // texto en tramos por fragmento
+    let tx = '', run = '', rk = -1, rc = null;
+    const close = () => {
+      if (!run) return;
+      tx += rk ? `<span class="pc k ${rc}" data-k="${rk}">${esc(run)}</span>` : esc(run);
+      run = '';
+    };
+    vis.forEach(c => {
+      if (c.k !== rk) {
+        close();
+        if (rk && done) tx += labelIfEnd(rk, i, lastLineOf);
+        rk = c.k; rc = c.c;
+      }
+      run += c.ch;
+    });
+    close(); if (rk && done) tx += labelIfEnd(rk, i, lastLineOf);
+    const caret = current ? '<span class="caret">&nbsp;</span>' : '';
+    html += `<div class="row" data-line="${i}"><span class="no">${i + 1}</span><span class="heat">${heat}</span><span></span><span class="tx">${tx}${caret}</span></div>`;
+  });
+  const box = $('lines');
+  box.innerHTML = html;
+  box.classList.toggle('lit', done);
+}
+const labeled = new Set();
+function labelIfEnd(k, i, lastLineOf) {
+  if (lastLineOf[k] !== i || labeled.has(k)) return '';
+  labeled.add(k);
+  const f = state.frags[k - 1];
+  return `<span class="lbl ${f.c}">${k}</span>`;
+}
+
+function renderNotes(lv) {
+  const L = LEVELS[lv - 1], box = $('notes'), nF = state.frags.length;
+  if (!L.notes.length) { box.innerHTML = `<p class="base">${esc(L.base || '')}</p>`; return; }
+  const rows = L.notes.map((x, i) => {
+    const has = i < nF;
+    return `<div class="row ${x.t}" data-note="${has ? i + 1 : ''}" style="animation-delay:${0.15 + i * 0.35}s">` +
+      `<span></span><span></span><span></span><span class="nb"><span class="badge">${has ? i + 1 : '∅'}</span>` +
+      `<span class="tag">${TIPO[x.t]}</span><span${has ? '' : ' class="omit"'}>${has ? '' : 'Omite '}${esc(x.n)}</span></span></div>`;
+  }).join('');
+  box.innerHTML = `<h3>Qué cambió respecto del nivel ${lv - 1}</h3>${rows}` +
+    (lv >= 4 ? '<p class="src">Los errores de los niveles 4–5 son los que Mestre (2021) refuta en Cardoso (2000, p. 110).</p>' : '');
+}
+
+// Corchetes + cables (SVG)
+function wires() {
+  const svg = $('wires'); svg.innerHTML = '';
+  if (!state || !state.done) return;
+  const base = $('chat').getBoundingClientRect();
+  const firstRow = document.querySelector('#lines .row');
+  if (!firstRow) return;
+  const laneCell = firstRow.children[2].getBoundingClientRect();
+  const nF = state.frags.length;
+  let out = '';
+  state.frags.forEach(f => {
+    const pcs = [...document.querySelectorAll(`#lines .pc[data-k="${f.k}"]`)];
+    const note = document.querySelector(`#notes .row[data-note="${f.k}"] .badge`);
+    if (!pcs.length || !note) return;
+    const rows = pcs.map(p => p.closest('.row').getBoundingClientRect());
+    const top = Math.min(...rows.map(r => r.top)) - base.top + 5;
+    const bot = Math.max(...rows.map(r => r.bottom)) - base.top - 5;
+    // carril: arranca desde la izquierda del margen; el fragmento 1 queda más cerca del texto (evita cruces)
+    const step = Math.min(12, (laneCell.width - 24) / Math.max(1, nF - 1));
+    const x = laneCell.left - base.left + 12 + (nF - f.k) * step;
+    const nb = note.getBoundingClientRect();
+    const ny = nb.top + nb.height / 2 - base.top, nx = nb.left - base.left - 4;
+    const col = `var(--c-${f.c})`, delay = 0.15 + (f.k - 1) * 0.35;
+    // corchete
+    out += `<path pathLength="1" style="stroke:${col};animation-delay:${delay}s" d="M${x + 6},${top} H${x} V${bot} H${x + 6}"/>`;
+    // cable hasta la nota
+    out += `<path pathLength="1" style="stroke:${col};opacity:.75;animation-delay:${delay + 0.2}s" d="M${x},${bot} V${ny} H${nx}"/>`;
+    out += `<polygon points="${nx - 7},${ny - 4} ${nx},${ny} ${nx - 7},${ny + 4}" style="fill:${col};animation-delay:${delay + 0.7}s"/>`;
+    // conector fino desde el recuadro al corchete
+    const p0 = pcs[0].getBoundingClientRect();
+    const py = p0.top + p0.height / 2 - base.top;
+    out += `<path pathLength="1" style="stroke:${col};opacity:.35;stroke-width:1;animation-delay:${delay}s" d="M${p0.left - base.left - 2},${py} L${x + 6},${py}"/>`;
+  });
+  svg.innerHTML = out;
+}
+
+const slider = $('slider'), ticks = $('ticks');
+LEVELS.forEach((_, i) => {
+  const b = document.createElement('button'); b.textContent = i + 1;
+  b.onclick = () => setLevel(i + 1); ticks.appendChild(b);
+});
+$('prompt').textContent = PROMPT;
+
+function setLevel(lv) {
+  lv = Math.max(1, Math.min(5, lv));
+  slider.value = lv; $('levelNum').textContent = lv; $('ctx').textContent = LEVELS[lv - 1].ctx;
+  [...ticks.children].forEach((b, i) => b.classList.toggle('on', i + 1 === lv));
+  const { chars, frags } = parse(LEVELS[lv - 1].text);
+  state = { lines: wrap(chars), frags, done: false };
+  labeled.clear();
+  const total = chars.length;
+  const nonSp = chars.filter(c => c.ch !== ' ');
+  const pct = Math.round(100 * nonSp.filter(c => c.k).length / nonSp.length);
+  $('count').textContent = `${total} / 300 caracteres`;
+  $('share').innerHTML = '';
+  $('notes').innerHTML = ''; $('wires').innerHTML = '';
+  clearInterval(timer); let n = 0;
+  const step = Math.max(2, Math.ceil(total / 90)); // ~1,5 s de escritura
+  timer = setInterval(() => {
+    n += step;
+    if (n >= state.lines.reduce((a, l) => a + l.length + 1, 0)) {
+      clearInterval(timer); state.done = true; labeled.clear();
+      draw(Infinity, true); renderNotes(lv);
+      $('share').innerHTML = `texto señalado<b>${pct}%</b>`;
+      requestAnimationFrame(wires);
+      return;
+    }
+    draw(n, false);
+  }, 16);
+}
+
+slider.addEventListener('input', () => setLevel(+slider.value));
+window.addEventListener('resize', () => { if (state && state.done) wires(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); setLevel(+slider.value + 1); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); setLevel(+slider.value - 1); }
+  else if (/^[1-5]$/.test(e.key)) setLevel(+e.key);
+  else if (e.key.toLowerCase() === 'm') document.body.classList.toggle('clean');
+});
+setLevel(1);
+</script>
+</body>
+</html>
